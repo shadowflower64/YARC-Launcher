@@ -106,6 +106,13 @@ function Marketplace() {
                     )
                 }
             </MarketplaceSection>
+            <MarketplaceSection name="Learn Pro Keys">
+                {
+                    marketIndex.profiles.filter(i => i.type === "setlist" && i.category === "learn_pro_keys").map(i =>
+                        <MarketplaceProfileView profile={i} setSelectedProfile={setSelectedProfile} key={i.uuid} />
+                    )
+                }
+            </MarketplaceSection>
         </div>
     </main>;
 }
