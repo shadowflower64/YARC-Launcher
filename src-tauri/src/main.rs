@@ -5,17 +5,15 @@ mod types;
 mod utils;
 
 use std::{
-    fs::{self, File},
-    path::PathBuf,
-    process::Command,
-    sync::{LazyLock, Mutex},
+    fs::{self, File}, io, path::PathBuf, process::Command, sync::{LazyLock, Mutex}
 };
 
 use clap::Parser;
 use directories::BaseDirs;
 use minisign::{PublicKeyBox, SignatureBox};
 use online::check;
-use tauri::{AppHandle, Emitter, Manager};
+use serde::{Serialize, Serializer};
+use tauri::{ipc::InvokeError, AppHandle, Emitter, Manager};
 use types::*;
 use utils::*;
 
@@ -26,20 +24,57 @@ RWSB28HEvrtuwvPn3pweVBodgVi/d+UH22xDsL3K8VBgeRqaIrDdTvps
 static COMMAND_LINE_ARG_LAUNCH: LazyLock<Mutex<Option<String>>> =
     LazyLock::new(|| Mutex::new(None));
 
+#[derive(Serialize)]
+pub enum CreateDirectoryContext {
+    YARC,
+    Launcher,
+    Temp,
+    YARG,
+    Setlist
+}
+
+#[derive(Serialize)]
+pub enum CommandError {
+    CreateDirectoryError{
+        context: CreateDirectoryContext,
+        path: PathBuf,
+        #[serde(serialize_with = "serialize_io_error_to_string")] 
+        error: io::Error,
+    },
+    UnknownStringError(String)
+}
+
+pub fn serialize_io_error_to_string<S>(error: &io::Error, serializer: S) -> Result<S::Ok, S::Error> where S: Serializer {
+    serializer.serialize_str(&format!("{error:?}"))
+}
+
+impl CommandError {
+    pub fn from_str(msg: &str) -> Self {
+        msg.into()
+    }
+}
+
+impl From<String> for CommandError {
+    fn from(value: String) -> Self {
+        Self::UnknownStringError(value)
+    }
+}
+
+impl From<&str> for CommandError {
+    fn from(value: &str) -> Self {
+        Self::UnknownStringError(value.to_owned())
+    }
+}
+
 #[tauri::command(async)]
-fn get_important_dirs() -> Result<ImportantDirs, String> {
+fn get_important_dirs() -> Result<ImportantDirs, CommandError> {
     // Get the important directories
 
-    let dirs = BaseDirs::new().ok_or("Failed to get base directories.")?;
+    let dirs = BaseDirs::new().ok_or(CommandError::from_str("Failed to get base directories."))?;
 
-    let mut yarc_folder = PathBuf::from(dirs.data_local_dir());
-    yarc_folder.push("YARC");
-
-    let mut launcher_folder = PathBuf::from(&yarc_folder);
-    launcher_folder.push("Launcher");
-
-    let mut temp_folder = PathBuf::from(&launcher_folder);
-    temp_folder.push("Temp");
+    let yarc_folder = PathBuf::from(dirs.data_local_dir()).join("YARC");
+    let launcher_folder = PathBuf::from(&yarc_folder).join("Launcher");
+    let temp_folder = PathBuf::from(&launcher_folder).join("Temp");
 
     // Create the directories if they don't exist
 
