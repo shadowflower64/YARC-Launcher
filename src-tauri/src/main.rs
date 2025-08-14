@@ -169,8 +169,7 @@ async fn download_and_install_profile(
 
                 // Verify
                 let zip_file = File::open(&temp_file).map_err(CommandError::VerifyOpenZipFail)?;
-                minisign::verify(&pk, &sig_box, zip_file, true, false, false)
-                    .map_err(CommandError::VerifyFail)?;
+                minisign::verify(&pk, &sig_box, zip_file, true, false, false).map_err(CommandError::VerifyFail)?;
             }
 
             // Extract/install

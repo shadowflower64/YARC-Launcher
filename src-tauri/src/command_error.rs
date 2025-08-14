@@ -38,18 +38,18 @@ pub enum CommandError {
     ExtractOpenFile,
     UnhandledReleaseFileType(String),
     #[serde(serialize_with = "serialize_error_to_string")] 
-    InvalidSignatureFile(PError), // "Invalid signature file! Try reinstalling. If it keeps failing, let us know ASAP!"
+    InvalidSignatureFile(PError),
     #[serde(serialize_with = "serialize_error_to_string")] 
-    VerifyOpenZipFail(io::Error), // "Failed to open zip while verifying."
+    VerifyOpenZipFail(io::Error),
     #[serde(serialize_with = "serialize_error_to_string")] 
-    VerifyFail(PError), // "Failed to verify downloaded zip file! Try reinstalling. If it keeps failing, let us know ASAP!"
+    VerifyFail(PError),
     DownloadInitFail {
         url: String,
         #[serde(serialize_with = "serialize_error_to_string")] 
         error: reqwest::Error,
-    }, // "Failed to initialize download."
+    },
     #[serde(serialize_with = "serialize_error_to_string")] 
-    DownloadFail(reqwest::Error), // "Error while downloading file."
+    DownloadFail(reqwest::Error),
     UnknownStringError(String)
 }
 
@@ -69,8 +69,13 @@ impl CommandError {
             Self::ExtractSetlistPath { .. } => "Failed to extract setlist part.",
             Self::ExtractOpenFile => "Failed to open file while extracting.",
             Self::UnhandledReleaseFileType(_) => "Unhandled release file type.",
+            Self::InvalidSignatureFile(_) => "Invalid signature file! Try reinstalling. If it keeps failing, let us know ASAP!",
+            Self::VerifyOpenZipFail(_) => "Failed to open zip while verifying.",
+            Self::VerifyFail(_) => "Failed to verify downloaded zip file! Try reinstalling. If it keeps failing, let us know ASAP!",
+            Self::DownloadInitFail { .. } => "Failed to initialize download.",
+            Self::DownloadFail(_) => "Error while downloading file.",
             Self::UnknownStringError(msg) => msg,
-            _ => "Unknown error."
+            // _ => "Unknown error."
         }.to_owned()
     } 
 }

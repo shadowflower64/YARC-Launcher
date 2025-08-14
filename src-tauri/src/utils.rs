@@ -61,7 +61,8 @@ pub async fn download(
         .get(url)
         .send()
         .await
-        .map_err(|e| format!("Failed to initialize download from `{}`.\n{:?}", &url, e))?;
+        .map_err(|error| CommandError::DownloadInitFail { url: url.to_owned(), error })?;
+    
     let total_size = download.content_length().unwrap();
     // Create the file to download into
     let mut file = BufWriter::new(File::create(output_path).map_err(|e| {
@@ -81,7 +82,7 @@ pub async fn download(
             .header(RANGE, format!("bytes={current_downloaded}-"))
             .send()
             .await
-            .map_err(|e| format!("Failed to initialize download from `{}`.\n{:?}", &url, e))?;
+            .map_err(|error| CommandError::DownloadInitFail { url: url.to_owned(), error })?;
 
         let mut stream = download.bytes_stream();
 
