@@ -1,3 +1,4 @@
+use crate::command_error::CommandError;
 use crate::ProgressPayload;
 
 use futures_util::StreamExt;
@@ -30,13 +31,13 @@ lazy_static! {
 const LETTERS: &str = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
 const EMIT_BUFFER_RATE: f64 = 1.0 / 15.0;
 
-pub fn path_to_string(p: PathBuf) -> Result<String, String> {
+pub fn path_to_string(p: PathBuf) -> Result<String, CommandError> {
     Ok(p.into_os_string()
         .into_string()
         .map_err(|e| format!("Failed to convert path to string!\n{:?}", e))?)
 }
 
-pub fn clear_folder(path: &Path) -> Result<(), String> {
+pub fn clear_folder(path: &Path) -> Result<(), CommandError> {
     std::fs::remove_dir_all(path).ok();
     std::fs::create_dir_all(path).map_err(|e| {
         format!(
@@ -55,7 +56,7 @@ pub async fn download(
     output_path: &Path,
     file_count: u64,
     file_index: u64,
-) -> Result<(), String> {
+) -> Result<(), CommandError> {
     let download = REQWEST_CLIENT
         .get(url)
         .send()
@@ -97,7 +98,7 @@ pub async fn download(
                         last_resume_point = current_downloaded;
                         continue 'retry;
                     } else {
-                        return Err(format!("Error while downloading file.\n{:?}", e));
+                        return Err(CommandError::DownloadFail(e));
                     }
                 }
             };
@@ -120,7 +121,7 @@ pub async fn download(
                             current: current_downloaded + (total_size * file_index),
                             total: total_size * file_count,
                         },
-                    );
+                    ).inspect_err(|e| warn!("Failed to emit 'progress_info' / 'downloading' signal: {e:?}"));
 
                     emit_timer = Instant::now();
                 }
@@ -131,7 +132,7 @@ pub async fn download(
     }
 }
 
-pub fn extract(from: &Path, to: &Path) -> Result<(), String> {
+pub fn extract(from: &Path, to: &Path) -> Result<(), CommandError> {
     let file = File::open(from).map_err(|e| format!("Error while opening file.\n{:?}", e))?;
     zip_extract::extract(file, to, false)
         .map_err(|e| format!("Error while extracting zip.\n{:?}", e))?;
@@ -139,7 +140,7 @@ pub fn extract(from: &Path, to: &Path) -> Result<(), String> {
     Ok(())
 }
 
-pub fn extract_encrypted(from: &Path, to: &Path) -> Result<(), String> {
+pub fn extract_encrypted(from: &Path, to: &Path) -> Result<(), CommandError> {
     // Idiot prevention
     let mut chars = Vec::new();
     for i in 0i32..64 {
@@ -150,17 +151,13 @@ pub fn extract_encrypted(from: &Path, to: &Path) -> Result<(), String> {
             LETTERS
                 .bytes()
                 .nth(c as usize)
-                .ok_or("Failed to index LETTERS.")? as u16,
+                .expect("Failed to index LETTERS.") as u16,
         );
     }
 
     let p: &[u16] = &chars;
-    sevenz_rust::decompress_file_with_password(from, to, Password::from(p)).map_err(|e| {
-        format!(
-            "Failed to extract setlist part `{}`.\n{:?}",
-            from.display(),
-            e
-        )
+    sevenz_rust::decompress_file_with_password(from, to, Password::from(p)).map_err(|error| {
+        CommandError::ExtractSetlistPath { path: from.to_owned(), error }
     })?;
 
     Ok(())

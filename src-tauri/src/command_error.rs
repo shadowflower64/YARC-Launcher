@@ -1,54 +1,77 @@
-use std::{fmt, io, path::{Path, PathBuf}};
+use std::{fmt, io, path::{PathBuf}};
+use minisign::PError;
 use serde::{Serialize, Serializer};
-
-
-#[derive(Serialize)]
-pub enum PathCtx {
-    YARC,
-    Launcher,
-    Temp,
-    YARG,
-    Setlist
-}
 
 #[derive(Serialize)]
 pub enum CommandError {
-    CreateDirectoryError{
-        context: PathCtx,
+    CreateYARCDirectory {
         path: PathBuf,
-        #[serde(serialize_with = "serialize_io_error_to_string")] 
+        #[serde(serialize_with = "serialize_error_to_string")] 
         error: io::Error,
     },
-    GetBaseDirsError,
+    CreateLauncherDirectory {
+        path: PathBuf,
+        #[serde(serialize_with = "serialize_error_to_string")] 
+        error: io::Error,
+    },
+    CreateTempDirectory {
+        path: PathBuf,
+        #[serde(serialize_with = "serialize_error_to_string")] 
+        error: io::Error,
+    },
+    CreateYARGDirectory {
+        path: PathBuf,
+        #[serde(serialize_with = "serialize_error_to_string")] 
+        error: io::Error,
+    },
+    CreateSetlistDirectory {
+        path: PathBuf,
+        #[serde(serialize_with = "serialize_error_to_string")] 
+        error: io::Error,
+    },
+    GetBaseDirs,
+    ExtractSetlistPath {
+        path: PathBuf,
+        #[serde(serialize_with = "serialize_error_to_string")] 
+        error: sevenz_rust::Error,
+    },
+    ExtractOpenFile,
+    UnhandledReleaseFileType(String),
+    #[serde(serialize_with = "serialize_error_to_string")] 
+    InvalidSignatureFile(PError), // "Invalid signature file! Try reinstalling. If it keeps failing, let us know ASAP!"
+    #[serde(serialize_with = "serialize_error_to_string")] 
+    VerifyOpenZipFail(io::Error), // "Failed to open zip while verifying."
+    #[serde(serialize_with = "serialize_error_to_string")] 
+    VerifyFail(PError), // "Failed to verify downloaded zip file! Try reinstalling. If it keeps failing, let us know ASAP!"
+    DownloadInitFail {
+        url: String,
+        #[serde(serialize_with = "serialize_error_to_string")] 
+        error: reqwest::Error,
+    }, // "Failed to initialize download."
+    #[serde(serialize_with = "serialize_error_to_string")] 
+    DownloadFail(reqwest::Error), // "Error while downloading file."
     UnknownStringError(String)
 }
 
-pub fn serialize_io_error_to_string<S>(error: &io::Error, serializer: S) -> Result<S::Ok, S::Error> where S: Serializer {
+pub fn serialize_error_to_string<E: fmt::Debug, S: Serializer>(error: &E, serializer: S) -> Result<S::Ok, S::Error> {
     serializer.serialize_str(&format!("{error:?}"))
 }
 
 impl CommandError {
-    pub fn new_create_dir_err(context: PathCtx, path: &Path, error: io::Error) -> Self {
-        Self::CreateDirectoryError { context, path: path.to_owned(), error }
-    }
-
-    pub fn new_unknown(msg: &str) -> Self {
-        Self::UnknownStringError(msg.to_owned())
-    }
-
     pub fn msg(&self) -> String {
         match self {
-            Self::CreateDirectoryError{ context, .. } => match *context {
-                PathCtx::YARC => "Failed to create YARC directory.",
-                PathCtx::Launcher => "Failed to create launcher directory.",
-                PathCtx::Temp => "Failed to create temp directory.",
-                PathCtx::YARG => "Failed to create YARG directory.",
-                PathCtx::Setlist => "Failed to create setlist directory."
-            }.to_owned(),
-            Self::GetBaseDirsError => "Failed to get base directories.".to_owned(),
-            Self::UnknownStringError(msg) => msg.to_owned(),
-            // _ => "Unknown error."
-        }
+            Self::CreateYARCDirectory { .. } => "Failed to create YARC directory.",
+            Self::CreateLauncherDirectory { .. } => "Failed to create launcher directory.",
+            Self::CreateTempDirectory { .. } => "Failed to create launcher directory.",
+            Self::CreateYARGDirectory { .. } => "Failed to create YARG directory.",
+            Self::CreateSetlistDirectory { .. } => "Failed to create setlist directory.",
+            Self::GetBaseDirs => "Failed to get base directories.",
+            Self::ExtractSetlistPath { .. } => "Failed to extract setlist part.",
+            Self::ExtractOpenFile => "Failed to open file while extracting.",
+            Self::UnhandledReleaseFileType(_) => "Unhandled release file type.",
+            Self::UnknownStringError(msg) => msg,
+            _ => "Unknown error."
+        }.to_owned()
     } 
 }
 
