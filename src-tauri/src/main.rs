@@ -1,23 +1,24 @@
 // Prevents additional console window on Windows in release, DO NOT REMOVE!!
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod command_error;
 mod types;
 mod utils;
-mod command_error;
 
-use std::{
-    fs::{self, File}, path::PathBuf, process::Command, sync::{LazyLock, Mutex}
-};
-
+use crate::command_error::CommandError;
 use clap::Parser;
 use directories::BaseDirs;
 use log::warn;
 use minisign::{PublicKeyBox, SignatureBox};
+use std::{
+    fs::{self, File},
+    path::PathBuf,
+    process::Command,
+    sync::{LazyLock, Mutex},
+};
 use tauri::{AppHandle, Emitter, Manager};
 use types::*;
 use utils::*;
-
-use crate::command_error::CommandError;
 
 const YARG_PUB_KEY: &str = "untrusted comment: minisign public key C26EBBBEC4C1DB81
 RWSB28HEvrtuwvPn3pweVBodgVi/d+UH22xDsL3K8VBgeRqaIrDdTvps
@@ -35,9 +36,20 @@ fn get_important_dirs() -> Result<ImportantDirs, CommandError> {
     let temp_folder = PathBuf::from(&launcher_folder).join("Temp");
 
     // Create the directories if they don't exist
-    fs::create_dir_all(&yarc_folder).map_err(|error| CommandError::CreateYARCDirectory{ path: yarc_folder.to_owned(), error })?;
-    fs::create_dir_all(&launcher_folder).map_err(|error| CommandError::CreateLauncherDirectory{ path: launcher_folder.to_owned(), error })?;
-    fs::create_dir_all(&temp_folder).map_err(|error| CommandError::CreateTempDirectory{ path: temp_folder.to_owned(), error })?;
+    fs::create_dir_all(&yarc_folder).map_err(|error| CommandError::CreateYARCDirectory {
+        path: yarc_folder.to_owned(),
+        error,
+    })?;
+    fs::create_dir_all(&launcher_folder).map_err(|error| {
+        CommandError::CreateLauncherDirectory {
+            path: launcher_folder.to_owned(),
+            error,
+        }
+    })?;
+    fs::create_dir_all(&temp_folder).map_err(|error| CommandError::CreateTempDirectory {
+        path: temp_folder.to_owned(),
+        error,
+    })?;
 
     Ok(ImportantDirs {
         yarc_folder: path_to_string(yarc_folder)?,
@@ -53,8 +65,14 @@ fn get_custom_dirs(download_location: String) -> Result<CustomDirs, CommandError
     let setlist_folder = PathBuf::from(&download_location).join("Setlists");
 
     // Create the directories if they don't exist
-    fs::create_dir_all(&yarg_folder).map_err(|error| CommandError::CreateYARGDirectory{ path: yarg_folder.to_owned(), error })?;
-    fs::create_dir_all(&setlist_folder).map_err(|error| CommandError::CreateSetlistDirectory{ path: setlist_folder.to_owned(), error })?;
+    fs::create_dir_all(&yarg_folder).map_err(|error| CommandError::CreateYARGDirectory {
+        path: yarg_folder.to_owned(),
+        error,
+    })?;
+    fs::create_dir_all(&setlist_folder).map_err(|error| CommandError::CreateSetlistDirectory {
+        path: setlist_folder.to_owned(),
+        error,
+    })?;
 
     Ok(CustomDirs {
         yarg_folder: path_to_string(yarg_folder)?,
@@ -114,10 +132,12 @@ async fn download_and_install_profile(
     content: Vec<ReleaseContent>,
 ) -> Result<(), CommandError> {
     let temp_file = PathBuf::from(&temp_path).join(format!("{}.temp", uuid));
-    let _ = fs::remove_file(&temp_file).inspect_err(|e| warn!("Failed to remove temp file: {temp_file:?} {e:?}"));
+    let _ = fs::remove_file(&temp_file)
+        .inspect_err(|e| warn!("Failed to remove temp file: {temp_file:?} {e:?}"));
 
     let sig_file = PathBuf::from(&temp_path).join(format!("{}.temp_sig", uuid));
-    let _ = fs::remove_file(&sig_file).inspect_err(|e| warn!("Failed to remove temp sig file: {sig_file:?} {e:?}"));
+    let _ = fs::remove_file(&sig_file)
+        .inspect_err(|e| warn!("Failed to remove temp sig file: {sig_file:?} {e:?}"));
 
     let install_path = PathBuf::from(&profile_path).join("installation");
     clear_folder(&install_path)?;
@@ -147,14 +167,18 @@ async fn download_and_install_profile(
             // Verify (if signature is provided)
             if let Some(sig_url) = &file.sig_url {
                 // Emit the verification
-                let _ = handle.emit(
-                    "progress_info",
-                    ProgressPayload {
-                        state: "verifying".to_string(),
-                        current: payload_current,
-                        total: file_count,
-                    },
-                ).inspect_err(|e| warn!("Failed to emit 'progress_info' / 'verifying' signal: {e:?}"));
+                let _ = handle
+                    .emit(
+                        "progress_info",
+                        ProgressPayload {
+                            state: "verifying".to_string(),
+                            current: payload_current,
+                            total: file_count,
+                        },
+                    )
+                    .inspect_err(|e| {
+                        warn!("Failed to emit 'progress_info' / 'verifying' signal: {e:?}")
+                    });
 
                 // Download sig file (don't pass app so it doesn't emit an update)
                 download(None, &sig_url, &sig_file, 0, 0).await?;
@@ -169,30 +193,39 @@ async fn download_and_install_profile(
 
                 // Verify
                 let zip_file = File::open(&temp_file).map_err(CommandError::VerifyOpenZipFail)?;
-                minisign::verify(&pk, &sig_box, zip_file, true, false, false).map_err(CommandError::VerifyFail)?;
+                minisign::verify(&pk, &sig_box, zip_file, true, false, false)
+                    .map_err(CommandError::VerifyFail)?;
             }
 
             // Extract/install
-            let _ = handle.emit(
-                "progress_info",
-                ProgressPayload {
-                    state: "installing".to_string(),
-                    current: payload_current,
-                    total: file_count,
-                },
-            ).inspect_err(|e| warn!("Failed to emit 'progress_info' / 'installing' signal: {e:?}"));
+            let _ = handle
+                .emit(
+                    "progress_info",
+                    ProgressPayload {
+                        state: "installing".to_string(),
+                        current: payload_current,
+                        total: file_count,
+                    },
+                )
+                .inspect_err(|e| {
+                    warn!("Failed to emit 'progress_info' / 'installing' signal: {e:?}")
+                });
 
             if file.file_type == "zip" {
                 extract(&temp_file, &install_path)?;
             } else if file.file_type == "encrypted" {
                 extract_encrypted(&temp_file, &install_path)?;
             } else {
-                return Err(CommandError::UnhandledReleaseFileType(file.file_type.clone()));
+                return Err(CommandError::UnhandledReleaseFileType(
+                    file.file_type.clone(),
+                ));
             }
 
             // Clean up
-            let _ = fs::remove_file(&temp_file).inspect_err(|e| warn!("Failed to remove temp file: {temp_file:?} {e:?}"));
-            let _ = fs::remove_file(&sig_file).inspect_err(|e| warn!("Failed to remove temp sig file: {sig_file:?} {e:?}"));
+            let _ = fs::remove_file(&temp_file)
+                .inspect_err(|e| warn!("Failed to remove temp file: {temp_file:?} {e:?}"));
+            let _ = fs::remove_file(&sig_file)
+                .inspect_err(|e| warn!("Failed to remove temp sig file: {sig_file:?} {e:?}"));
         }
     }
 
@@ -211,8 +244,10 @@ fn uninstall_profile(profile_path: String) -> Result<(), CommandError> {
     fs::remove_file(tag_file).map_err(|e| format!("Failed to remove tag file.\n{:?}", e))?;
 
     // Remove the directories if they are empty
-    let _ = fs::remove_dir(&install_path).inspect_err(|e| warn!("Failed to remove install directory: {install_path:?} {e:?}"));
-    let _ = fs::remove_dir(&profile_path).inspect_err(|e| warn!("Failed to remove profile directory: {profile_path:?} {e:?}"));
+    let _ = fs::remove_dir(&install_path)
+        .inspect_err(|e| warn!("Failed to remove install directory: {install_path:?} {e:?}"));
+    let _ = fs::remove_dir(&profile_path)
+        .inspect_err(|e| warn!("Failed to remove profile directory: {profile_path:?} {e:?}"));
 
     Ok(())
 }
@@ -224,7 +259,9 @@ fn launch_profile(
     use_obs_vkcapture: bool,
     arguments: Vec<String>,
 ) -> Result<(), CommandError> {
-    let path = PathBuf::from(&profile_path).join("installation").join(exec_path);
+    let path = PathBuf::from(&profile_path)
+        .join("installation")
+        .join(exec_path);
 
     if !use_obs_vkcapture {
         Command::new(path).args(arguments).spawn().map_err(|e| {
@@ -264,13 +301,16 @@ fn get_launch_argument() -> Option<String> {
 #[tauri::command(async)]
 fn clean_up_old_install(yarg_folder: String, setlist_folder: String) -> Result<(), String> {
     let stable_old = PathBuf::from(&yarg_folder).join("stable");
-    let _ = fs::remove_dir_all(&stable_old).inspect_err(|e| warn!("Failed to remove old stable directory: {e:?}"));
+    let _ = fs::remove_dir_all(&stable_old)
+        .inspect_err(|e| warn!("Failed to remove old stable directory: {e:?}"));
 
     let nightly_old = PathBuf::from(&yarg_folder).join("nightly");
-    let _ = fs::remove_dir_all(&nightly_old).inspect_err(|e| warn!("Failed to remove old nightly directory: {e:?}"));
+    let _ = fs::remove_dir_all(&nightly_old)
+        .inspect_err(|e| warn!("Failed to remove old nightly directory: {e:?}"));
 
     let setlist_old = PathBuf::from(&setlist_folder).join("official");
-    let _ = fs::remove_dir_all(&setlist_old).inspect_err(|e| warn!("Failed to remove old setlist directory: {e:?}"));
+    let _ = fs::remove_dir_all(&setlist_old)
+        .inspect_err(|e| warn!("Failed to remove old setlist directory: {e:?}"));
 
     Ok(())
 }

@@ -57,12 +57,16 @@ pub async fn download(
     file_count: u64,
     file_index: u64,
 ) -> Result<(), CommandError> {
-    let download = REQWEST_CLIENT
-        .get(url)
-        .send()
-        .await
-        .map_err(|error| CommandError::DownloadInitFail { url: url.to_owned(), error })?;
-    
+    let download =
+        REQWEST_CLIENT
+            .get(url)
+            .send()
+            .await
+            .map_err(|error| CommandError::DownloadInitFail {
+                url: url.to_owned(),
+                error,
+            })?;
+
     let total_size = download.content_length().unwrap();
     // Create the file to download into
     let mut file = BufWriter::new(File::create(output_path).map_err(|e| {
@@ -82,7 +86,10 @@ pub async fn download(
             .header(RANGE, format!("bytes={current_downloaded}-"))
             .send()
             .await
-            .map_err(|error| CommandError::DownloadInitFail { url: url.to_owned(), error })?;
+            .map_err(|error| CommandError::DownloadInitFail {
+                url: url.to_owned(),
+                error,
+            })?;
 
         let mut stream = download.bytes_stream();
 
@@ -115,14 +122,18 @@ pub async fn download(
             // Emitting too often could cause crashes, so buffer it to the buffer rate
             if let Some(app) = app_handle {
                 if emit_timer.elapsed() >= Duration::from_secs_f64(EMIT_BUFFER_RATE) {
-                    let _ = app.emit(
-                        "progress_info",
-                        ProgressPayload {
-                            state: "downloading".to_string(),
-                            current: current_downloaded + (total_size * file_index),
-                            total: total_size * file_count,
-                        },
-                    ).inspect_err(|e| warn!("Failed to emit 'progress_info' / 'downloading' signal: {e:?}"));
+                    let _ = app
+                        .emit(
+                            "progress_info",
+                            ProgressPayload {
+                                state: "downloading".to_string(),
+                                current: current_downloaded + (total_size * file_index),
+                                total: total_size * file_count,
+                            },
+                        )
+                        .inspect_err(|e| {
+                            warn!("Failed to emit 'progress_info' / 'downloading' signal: {e:?}")
+                        });
 
                     emit_timer = Instant::now();
                 }
@@ -134,9 +145,14 @@ pub async fn download(
 }
 
 pub fn extract(from: &Path, to: &Path) -> Result<(), CommandError> {
-    let file = File::open(from).map_err(|e| format!("Error while opening file.\n{:?}", e))?;
-    zip_extract::extract(file, to, false)
-        .map_err(|e| format!("Error while extracting zip.\n{:?}", e))?;
+    let file = File::open(from).map_err(|error| CommandError::ExtractFileOpenError {
+        path: from.to_owned(),
+        error,
+    })?;
+    zip_extract::extract(file, to, false).map_err(|error| CommandError::ExtractZipError {
+        path: from.to_owned(),
+        error,
+    })?;
 
     Ok(())
 }
@@ -158,7 +174,10 @@ pub fn extract_encrypted(from: &Path, to: &Path) -> Result<(), CommandError> {
 
     let p: &[u16] = &chars;
     sevenz_rust::decompress_file_with_password(from, to, Password::from(p)).map_err(|error| {
-        CommandError::ExtractSetlistPath { path: from.to_owned(), error }
+        CommandError::ExtractSetlistPath {
+            path: from.to_owned(),
+            error,
+        }
     })?;
 
     Ok(())
