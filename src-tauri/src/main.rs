@@ -3,19 +3,20 @@
 
 mod types;
 mod utils;
+mod command_error;
 
 use std::{
-    fs::{self, File}, io, path::PathBuf, process::Command, sync::{LazyLock, Mutex}
+    fs::{self, File}, path::PathBuf, process::Command, sync::{LazyLock, Mutex}
 };
 
 use clap::Parser;
 use directories::BaseDirs;
 use minisign::{PublicKeyBox, SignatureBox};
-use online::check;
-use serde::{Serialize, Serializer};
-use tauri::{ipc::InvokeError, AppHandle, Emitter, Manager};
+use tauri::{AppHandle, Emitter, Manager};
 use types::*;
 use utils::*;
+
+use crate::command_error::{CommandError, PathCtx};
 
 const YARG_PUB_KEY: &str = "untrusted comment: minisign public key C26EBBBEC4C1DB81
 RWSB28HEvrtuwvPn3pweVBodgVi/d+UH22xDsL3K8VBgeRqaIrDdTvps
@@ -24,95 +25,40 @@ RWSB28HEvrtuwvPn3pweVBodgVi/d+UH22xDsL3K8VBgeRqaIrDdTvps
 static COMMAND_LINE_ARG_LAUNCH: LazyLock<Mutex<Option<String>>> =
     LazyLock::new(|| Mutex::new(None));
 
-#[derive(Serialize)]
-pub enum CreateDirectoryContext {
-    YARC,
-    Launcher,
-    Temp,
-    YARG,
-    Setlist
-}
-
-#[derive(Serialize)]
-pub enum CommandError {
-    CreateDirectoryError{
-        context: CreateDirectoryContext,
-        path: PathBuf,
-        #[serde(serialize_with = "serialize_io_error_to_string")] 
-        error: io::Error,
-    },
-    UnknownStringError(String)
-}
-
-pub fn serialize_io_error_to_string<S>(error: &io::Error, serializer: S) -> Result<S::Ok, S::Error> where S: Serializer {
-    serializer.serialize_str(&format!("{error:?}"))
-}
-
-impl CommandError {
-    pub fn from_str(msg: &str) -> Self {
-        msg.into()
-    }
-}
-
-impl From<String> for CommandError {
-    fn from(value: String) -> Self {
-        Self::UnknownStringError(value)
-    }
-}
-
-impl From<&str> for CommandError {
-    fn from(value: &str) -> Self {
-        Self::UnknownStringError(value.to_owned())
-    }
-}
-
 #[tauri::command(async)]
 fn get_important_dirs() -> Result<ImportantDirs, CommandError> {
     // Get the important directories
-
-    let dirs = BaseDirs::new().ok_or(CommandError::from_str("Failed to get base directories."))?;
-
+    let dirs = BaseDirs::new().ok_or(CommandError::GetBaseDirsError)?;
     let yarc_folder = PathBuf::from(dirs.data_local_dir()).join("YARC");
     let launcher_folder = PathBuf::from(&yarc_folder).join("Launcher");
     let temp_folder = PathBuf::from(&launcher_folder).join("Temp");
 
     // Create the directories if they don't exist
+    fs::create_dir_all(&yarc_folder).map_err(|e| CommandError::new_create_dir_err(PathCtx::YARC, &yarc_folder, e))?;
+    fs::create_dir_all(&launcher_folder).map_err(|e| CommandError::new_create_dir_err(PathCtx::Launcher, &launcher_folder, e))?;
+    fs::create_dir_all(&temp_folder).map_err(|e| CommandError::new_create_dir_err(PathCtx::Temp, &temp_folder, e))?;
 
-    std::fs::create_dir_all(&yarc_folder)
-        .map_err(|e| format!("Failed to create YARC directory.\n{:?}", e))?;
-    std::fs::create_dir_all(&launcher_folder)
-        .map_err(|e| format!("Failed to create launcher directory.\n{:?}", e))?;
-    std::fs::create_dir_all(&temp_folder)
-        .map_err(|e| format!("Failed to create temp directory.\n{:?}", e))?;
-
-    return Ok(ImportantDirs {
+    Ok(ImportantDirs {
         yarc_folder: path_to_string(yarc_folder)?,
         launcher_folder: path_to_string(launcher_folder)?,
         temp_folder: path_to_string(temp_folder)?,
-    });
+    })
 }
 
 #[tauri::command(async)]
-fn get_custom_dirs(download_location: String) -> Result<CustomDirs, String> {
+fn get_custom_dirs(download_location: String) -> Result<CustomDirs, CommandError> {
     // Get the custom directories
-
-    let mut yarg_folder = PathBuf::from(&download_location);
-    yarg_folder.push("YARG Installs");
-
-    let mut setlist_folder = PathBuf::from(&download_location);
-    setlist_folder.push("Setlists");
+    let yarg_folder = PathBuf::from(&download_location).join("YARG Installs");
+    let setlist_folder = PathBuf::from(&download_location).join("Setlists");
 
     // Create the directories if they don't exist
+    fs::create_dir_all(&yarg_folder).map_err(|e| CommandError::new_create_dir_err(PathCtx::YARG, &yarg_folder, e))?;
+    fs::create_dir_all(&setlist_folder).map_err(|e| CommandError::new_create_dir_err(PathCtx::Setlist, &setlist_folder, e))?;
 
-    std::fs::create_dir_all(&yarg_folder)
-        .map_err(|e| format!("Failed to create YARG directory.\n{:?}", e))?;
-    std::fs::create_dir_all(&setlist_folder)
-        .map_err(|e| format!("Failed to create setlist directory.\n{:?}", e))?;
-
-    return Ok(CustomDirs {
+    Ok(CustomDirs {
         yarg_folder: path_to_string(yarg_folder)?,
         setlist_folder: path_to_string(setlist_folder)?,
-    });
+    })
 }
 
 #[tauri::command]
@@ -125,16 +71,12 @@ fn is_dir_empty(path: String) -> bool {
 
 #[tauri::command(async)]
 fn is_connected_to_internet() -> bool {
-    match check(Some(7)) {
-        Ok(()) => true,
-        Err(_) => false,
-    }
+    online::check(Some(7)).is_ok()
 }
 
 #[tauri::command(async)]
 fn profile_folder_state(path: String, wanted_tag: String) -> ProfileFolderState {
-    let mut tag_file = PathBuf::from(&path);
-    tag_file.push("tag.txt");
+    let tag_file = PathBuf::from(&path).join("tag.txt");
 
     let tag_file_exists = tag_file.try_exists();
     if let Ok(exists) = tag_file_exists {
@@ -150,11 +92,11 @@ fn profile_folder_state(path: String, wanted_tag: String) -> ProfileFolderState 
                 return ProfileFolderState::UpdateRequired;
             }
         } else {
-            println!("Failed to read tag file at `{}`", path);
+            eprintln!("Failed to read tag file at `{}`", path);
             return ProfileFolderState::Error;
         }
     } else {
-        println!("Failed to find if the profile exists at `{}`", path);
+        eprintln!("Failed to find if the profile exists at `{}`", path);
         return ProfileFolderState::Error;
     }
 }
@@ -170,16 +112,13 @@ async fn download_and_install_profile(
     temp_path: String,
     content: Vec<ReleaseContent>,
 ) -> Result<(), String> {
-    let mut temp_file = PathBuf::from(&temp_path);
-    temp_file.push(format!("{}.temp", uuid));
+    let temp_file = PathBuf::from(&temp_path).join(format!("{}.temp", uuid));
     let _ = fs::remove_file(&temp_file);
 
-    let mut sig_file = PathBuf::from(&temp_path);
-    sig_file.push(format!("{}.temp_sig", uuid));
+    let sig_file = PathBuf::from(&temp_path).join(format!("{}.temp_sig", uuid));
     let _ = fs::remove_file(&sig_file);
 
-    let mut install_path = PathBuf::from(&profile_path);
-    install_path.push("installation");
+    let install_path = PathBuf::from(&profile_path).join("installation");
     clear_folder(&install_path)?;
 
     // Download and install all content
@@ -193,7 +132,6 @@ async fn download_and_install_profile(
         let file_count = c.files.len() as u64;
         for (index, file) in c.files.iter().enumerate() {
             // Download
-
             download(
                 Some(&handle),
                 &file.url,
@@ -206,7 +144,6 @@ async fn download_and_install_profile(
             let payload_current = (index + 1) as u64;
 
             // Verify (if signature is provided)
-
             if let Some(sig_url) = &file.sig_url {
                 // Emit the verification
                 let _ = &handle.emit(
@@ -237,7 +174,6 @@ async fn download_and_install_profile(
             }
 
             // Extract/install
-
             let _ = handle.emit(
                 "progress_info",
                 ProgressPayload {
@@ -256,14 +192,12 @@ async fn download_and_install_profile(
             }
 
             // Clean up
-
             let _ = fs::remove_file(&temp_file);
             let _ = fs::remove_file(&sig_file);
         }
     }
 
-    let mut tag_file = PathBuf::from(&profile_path);
-    tag_file.push("tag.txt");
+    let tag_file = PathBuf::from(&profile_path).join("tag.txt");
     fs::write(&tag_file, tag).map_err(|e| format!("Failed to write tag file.\n{:?}", e))?;
 
     Ok(())
@@ -271,12 +205,10 @@ async fn download_and_install_profile(
 
 #[tauri::command(async)]
 fn uninstall_profile(profile_path: String) -> Result<(), String> {
-    let mut install_path = PathBuf::from(&profile_path);
-    install_path.push("installation");
+    let install_path = PathBuf::from(&profile_path).join("installation");
     clear_folder(&install_path)?;
 
-    let mut tag_file = PathBuf::from(&profile_path);
-    tag_file.push("tag.txt");
+    let tag_file = PathBuf::from(&profile_path).join("tag.txt");
     fs::remove_file(tag_file).map_err(|e| format!("Failed to remove tag file.\n{:?}", e))?;
 
     // Remove the directories if they are empty
@@ -293,9 +225,7 @@ fn launch_profile(
     use_obs_vkcapture: bool,
     arguments: Vec<String>,
 ) -> Result<(), String> {
-    let mut path = PathBuf::from(&profile_path);
-    path.push("installation");
-    path.push(exec_path);
+    let path = PathBuf::from(&profile_path).join("installation").join(exec_path);
 
     if !use_obs_vkcapture {
         Command::new(path).args(arguments).spawn().map_err(|e| {
@@ -318,8 +248,7 @@ fn launch_profile(
 
 #[tauri::command]
 fn open_folder_profile(profile_path: String) -> Result<(), String> {
-    let mut path = PathBuf::from(&profile_path);
-    path.push("installation");
+    let path = PathBuf::from(&profile_path).join("installation");
 
     opener::reveal(path)
         .map_err(|e| format!("Failed to reveal folder. Is it installed?\n{:?}", e))?;
@@ -335,20 +264,14 @@ fn get_launch_argument() -> Option<String> {
 
 #[tauri::command(async)]
 fn clean_up_old_install(yarg_folder: String, setlist_folder: String) -> Result<(), String> {
-    let mut stable_old = PathBuf::from(&yarg_folder);
-    stable_old.push("stable");
-    clear_folder(&stable_old)?;
-    let _ = fs::remove_dir(&stable_old);
+    let stable_old = PathBuf::from(&yarg_folder).join("stable");
+    let _ = fs::remove_dir_all(&stable_old).inspect_err(|e| eprintln!("Failed to remove old stable directory: {e:?}"));
 
-    let mut nightly_old = PathBuf::from(&yarg_folder);
-    nightly_old.push("nightly");
-    clear_folder(&nightly_old)?;
-    let _ = fs::remove_dir(&nightly_old);
+    let nightly_old = PathBuf::from(&yarg_folder).join("nightly");
+    let _ = fs::remove_dir_all(&nightly_old).inspect_err(|e| eprintln!("Failed to remove old nightly directory: {e:?}"));
 
-    let mut setlist_old = PathBuf::from(&setlist_folder);
-    setlist_old.push("official");
-    clear_folder(&setlist_old)?;
-    let _ = fs::remove_dir(&setlist_old);
+    let setlist_old = PathBuf::from(&setlist_folder).join("official");
+    let _ = fs::remove_dir_all(&setlist_old).inspect_err(|e| eprintln!("Failed to remove old setlist directory: {e:?}"));
 
     Ok(())
 }
