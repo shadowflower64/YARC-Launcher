@@ -28,7 +28,7 @@ lazy_static! {
     };
 }
 
-const LETTERS: &str = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
+const LETTERS: &[u8] = b"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
 const EMIT_BUFFER_RATE: f64 = 1.0 / 15.0;
 
 pub fn path_to_string(p: PathBuf) -> Result<String, CommandError> {
@@ -166,9 +166,9 @@ pub fn extract_encrypted(from: &Path, to: &Path) -> Result<(), CommandError> {
         let c = a.wrapping_rem(b).wrapping_rem(52);
         chars.push(
             LETTERS
-                .bytes()
-                .nth(c as usize)
-                .expect("Failed to index LETTERS.") as u16,
+                .get(c as usize)
+                .expect("Failed to index LETTERS.")
+                .to_owned() as u16,
         );
     }
 
