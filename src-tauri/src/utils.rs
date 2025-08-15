@@ -9,7 +9,7 @@ use reqwest::{self, Client};
 use sevenz_rust::Password;
 use std::fs::File;
 use std::io::{BufWriter, Write};
-use std::path::{Path, PathBuf};
+use std::path::{Path};
 use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter};
 
@@ -31,20 +31,18 @@ lazy_static! {
 const LETTERS: &[u8] = b"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
 const EMIT_BUFFER_RATE: f64 = 1.0 / 15.0;
 
-pub fn path_to_string(p: PathBuf) -> Result<String, CommandError> {
-    Ok(p.into_os_string()
-        .into_string()
-        .map_err(|e| format!("Failed to convert path to string!\n{:?}", e))?)
+pub fn path_to_string(p: &Path) -> Result<String, CommandError> {
+    p.as_os_str()
+        .to_str()
+        .map(|x| x.to_owned())
+        .ok_or_else(|| CommandError::ConvertPathToStringError(p.to_owned()))
 }
 
 pub fn clear_folder(path: &Path) -> Result<(), CommandError> {
     std::fs::remove_dir_all(path).ok();
-    std::fs::create_dir_all(path).map_err(|e| {
-        format!(
-            "Failed to re-create folder `{}`.\n{:?}",
-            path.to_string_lossy(),
-            e
-        )
+    std::fs::create_dir_all(path).map_err(|error| CommandError::FailedToRecreateFolder {
+        path: path.to_owned(),
+        error
     })?;
 
     Ok(())
@@ -69,13 +67,7 @@ pub async fn download(
 
     let total_size = download.content_length().unwrap();
     // Create the file to download into
-    let mut file = BufWriter::new(File::create(output_path).map_err(|e| {
-        format!(
-            "Failed to create file `{}`.\n{:?}",
-            &output_path.display(),
-            e
-        )
-    })?);
+    let mut file = BufWriter::new(File::create(output_path).map_err(|error| CommandError::DownloadFileCreateFail { path: output_path.to_owned(), error })?);
     let mut current_downloaded: u64 = 0;
     let mut last_resume_point = 0;
 
@@ -111,7 +103,11 @@ pub async fn download(
                 }
             };
             file.write_all(&chunk)
-                .map_err(|e| format!("Error while writing to file.\n{:?}", e))?;
+                .map_err(|error| CommandError::DownloadWriteError {
+                    path: output_path.to_owned(),
+                    url: url.to_owned(),
+                    error
+                })?;
 
             // Cap the downloaded at the total size
             current_downloaded += chunk.len() as u64;

@@ -52,9 +52,9 @@ fn get_important_dirs() -> Result<ImportantDirs, CommandError> {
     })?;
 
     Ok(ImportantDirs {
-        yarc_folder: path_to_string(yarc_folder)?,
-        launcher_folder: path_to_string(launcher_folder)?,
-        temp_folder: path_to_string(temp_folder)?,
+        yarc_folder: path_to_string(&yarc_folder)?,
+        launcher_folder: path_to_string(&launcher_folder)?,
+        temp_folder: path_to_string(&temp_folder)?,
     })
 }
 
@@ -75,8 +75,8 @@ fn get_custom_dirs(download_location: String) -> Result<CustomDirs, CommandError
     })?;
 
     Ok(CustomDirs {
-        yarg_folder: path_to_string(yarg_folder)?,
-        setlist_folder: path_to_string(setlist_folder)?,
+        yarg_folder: path_to_string(&yarg_folder)?,
+        setlist_folder: path_to_string(&setlist_folder)?,
     })
 }
 
@@ -230,7 +230,7 @@ async fn download_and_install_profile(
     }
 
     let tag_file = PathBuf::from(&profile_path).join("tag.txt");
-    fs::write(&tag_file, tag).map_err(|e| format!("Failed to write tag file.\n{:?}", e))?;
+    fs::write(&tag_file, tag).map_err(|error| CommandError::WriteTagFileError { path: tag_file, error })?;
 
     Ok(())
 }
@@ -241,7 +241,10 @@ fn uninstall_profile(profile_path: String) -> Result<(), CommandError> {
     clear_folder(&install_path)?;
 
     let tag_file = PathBuf::from(&profile_path).join("tag.txt");
-    fs::remove_file(tag_file).map_err(|e| format!("Failed to remove tag file.\n{:?}", e))?;
+    fs::remove_file(&tag_file).map_err(|error| CommandError::FailedToRemoveTagFile {
+        path: tag_file.to_owned(),
+        error
+    })?;
 
     // Remove the directories if they are empty
     let _ = fs::remove_dir(&install_path)
@@ -264,19 +267,26 @@ fn launch_profile(
         .join(exec_path);
 
     if !use_obs_vkcapture {
-        Command::new(path).args(arguments).spawn().map_err(|e| {
-            format!(
-                "Failed to launch profile! Is the executable installed?\n{:?}",
-                e
-            )
+        Command::new(&path).args(&arguments).spawn().map_err(|error| {
+            CommandError::FailedToLaunchProfile {
+                path: path.to_owned(),
+                arguments,
+                use_obs_vkcapture,
+                error
+            }
         })?;
     } else {
-        let path_str = path_to_string(path)?;
+        let path_str = path_to_string(&path)?;
 
         Command::new("obs-gamecapture")
             .args([path_str].iter().chain(&arguments))
             .spawn()
-            .map_err(|e| format!("Failed to launch profile! Is the executable installed? Is obs-vkcapture installed and pathed?\n{:?}", e))?;
+            .map_err(|error| CommandError::FailedToLaunchProfile {
+                path: path.to_owned(),
+                arguments,
+                use_obs_vkcapture,
+                error
+            })?;
     }
 
     Ok(())
