@@ -1,4 +1,4 @@
-use crate::command_error::CommandError;
+use crate::command_error::{CommandError, Err};
 use crate::ProgressPayload;
 
 use futures_util::StreamExt;
@@ -9,7 +9,7 @@ use reqwest::{self, Client};
 use sevenz_rust::Password;
 use std::fs::File;
 use std::io::{BufWriter, Write};
-use std::path::{Path};
+use std::path::Path;
 use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter};
 
@@ -32,17 +32,17 @@ const LETTERS: &[u8] = b"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
 const EMIT_BUFFER_RATE: f64 = 1.0 / 15.0;
 
 pub fn path_to_string(p: &Path) -> Result<String, CommandError> {
-    p.as_os_str()
+    Ok(p.as_os_str()
         .to_str()
         .map(|x| x.to_owned())
-        .ok_or_else(|| CommandError::ConvertPathToStringError(p.to_owned()))
+        .ok_or_else(|| Err::ConvertPathToStringError(p.to_owned()))?)
 }
 
 pub fn clear_folder(path: &Path) -> Result<(), CommandError> {
     std::fs::remove_dir_all(path).ok();
-    std::fs::create_dir_all(path).map_err(|error| CommandError::FailedToRecreateFolder {
+    std::fs::create_dir_all(path).map_err(|error| Err::FailedToRecreateFolder {
         path: path.to_owned(),
-        error
+        error,
     })?;
 
     Ok(())
@@ -55,19 +55,24 @@ pub async fn download(
     file_count: u64,
     file_index: u64,
 ) -> Result<(), CommandError> {
-    let download =
-        REQWEST_CLIENT
-            .get(url)
-            .send()
-            .await
-            .map_err(|error| CommandError::DownloadInitFail {
-                url: url.to_owned(),
-                error,
-            })?;
+    let download = REQWEST_CLIENT
+        .get(url)
+        .send()
+        .await
+        .map_err(|error| Err::DownloadInitFail {
+            url: url.to_owned(),
+            error,
+        })?;
 
     let total_size = download.content_length().unwrap();
     // Create the file to download into
-    let mut file = BufWriter::new(File::create(output_path).map_err(|error| CommandError::DownloadFileCreateFail { path: output_path.to_owned(), error })?);
+    let mut file =
+        BufWriter::new(
+            File::create(output_path).map_err(|error| Err::DownloadFileCreateFail {
+                path: output_path.to_owned(),
+                error,
+            })?,
+        );
     let mut current_downloaded: u64 = 0;
     let mut last_resume_point = 0;
 
@@ -78,7 +83,7 @@ pub async fn download(
             .header(RANGE, format!("bytes={current_downloaded}-"))
             .send()
             .await
-            .map_err(|error| CommandError::DownloadInitFail {
+            .map_err(|error| Err::DownloadInitFail {
                 url: url.to_owned(),
                 error,
             })?;
@@ -98,15 +103,15 @@ pub async fn download(
                         last_resume_point = current_downloaded;
                         continue 'retry;
                     } else {
-                        return Err(CommandError::DownloadFail(e));
+                        Err(Err::DownloadFail(e))?
                     }
                 }
             };
             file.write_all(&chunk)
-                .map_err(|error| CommandError::DownloadWriteError {
+                .map_err(|error| Err::DownloadWriteError {
                     path: output_path.to_owned(),
                     url: url.to_owned(),
-                    error
+                    error,
                 })?;
 
             // Cap the downloaded at the total size
@@ -141,11 +146,11 @@ pub async fn download(
 }
 
 pub fn extract(from: &Path, to: &Path) -> Result<(), CommandError> {
-    let file = File::open(from).map_err(|error| CommandError::ExtractFileOpenError {
+    let file = File::open(from).map_err(|error| Err::ExtractFileOpenError {
         path: from.to_owned(),
         error,
     })?;
-    zip_extract::extract(file, to, false).map_err(|error| CommandError::ExtractZipError {
+    zip_extract::extract(file, to, false).map_err(|error| Err::ExtractZipError {
         path: from.to_owned(),
         error,
     })?;
@@ -170,7 +175,7 @@ pub fn extract_encrypted(from: &Path, to: &Path) -> Result<(), CommandError> {
 
     let p: &[u16] = &chars;
     sevenz_rust::decompress_file_with_password(from, to, Password::from(p)).map_err(|error| {
-        CommandError::ExtractSetlistPath {
+        Err::ExtractSetlistPath {
             path: from.to_owned(),
             error,
         }

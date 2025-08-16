@@ -1,88 +1,88 @@
-use log::warn;
 use minisign::PError;
+use opener::OpenError;
 use serde::{ser::SerializeStruct, Serialize, Serializer};
-use std::{error::Error, fmt, io, path::PathBuf};
+use std::{error::Error, io, path::PathBuf};
 use zip_extract::ZipExtractError;
 
-#[derive(Serialize)]
+#[derive(Debug, Serialize)]
 #[serde(tag = "type")]
-pub enum CommandError {
+pub enum Err {
     ConvertPathToStringError(PathBuf),
     FailedToRecreateFolder {
         path: PathBuf,
-        #[serde(serialize_with = "serialize_error_to_string")]
+        #[serde(serialize_with = "serialize_io_error")]
         error: io::Error,
     },
     CreateYARCDirectory {
         path: PathBuf,
-        #[serde(serialize_with = "serialize_error_to_string")]
+        #[serde(serialize_with = "serialize_io_error")]
         error: io::Error,
     },
     CreateLauncherDirectory {
         path: PathBuf,
-        #[serde(serialize_with = "serialize_error_to_string")]
+        #[serde(serialize_with = "serialize_io_error")]
         error: io::Error,
     },
     CreateTempDirectory {
         path: PathBuf,
-        #[serde(serialize_with = "serialize_error_to_string")]
+        #[serde(serialize_with = "serialize_io_error")]
         error: io::Error,
     },
     CreateYARGDirectory {
         path: PathBuf,
-        #[serde(serialize_with = "serialize_error_to_string")]
+        #[serde(serialize_with = "serialize_io_error")]
         error: io::Error,
     },
     CreateSetlistDirectory {
         path: PathBuf,
-        #[serde(serialize_with = "serialize_error_to_string")]
+        #[serde(serialize_with = "serialize_io_error")]
         error: io::Error,
     },
     GetBaseDirs,
     ExtractSetlistPath {
         path: PathBuf,
-        #[serde(serialize_with = "serialize_error_to_string")]
+        #[serde(serialize_with = "serialize_any_error")]
         error: sevenz_rust::Error,
     },
     ExtractFileOpenError {
         path: PathBuf,
-        #[serde(serialize_with = "serialize_error_to_string")]
+        #[serde(serialize_with = "serialize_io_error")]
         error: io::Error,
     },
     ExtractZipError {
         path: PathBuf,
-        #[serde(serialize_with = "serialize_error_to_string")]
+        #[serde(serialize_with = "serialize_any_error")]
         error: ZipExtractError,
     },
     UnhandledReleaseFileType(String),
     WriteTagFileError {
         path: PathBuf,
-        #[serde(serialize_with = "serialize_error_to_string")]
+        #[serde(serialize_with = "serialize_io_error")]
         error: io::Error,
     },
-    #[serde(serialize_with = "serialize_error_to_string")]
+    #[serde(serialize_with = "serialize_any_error")]
     InvalidSignatureFile(PError),
-    #[serde(serialize_with = "serialize_error_to_string")]
+    #[serde(serialize_with = "serialize_io_error")]
     VerifyOpenZipFail(io::Error),
-    #[serde(serialize_with = "serialize_error_to_string")]
+    #[serde(serialize_with = "serialize_any_error")]
     VerifyFail(PError),
     DownloadFileCreateFail {
         path: PathBuf,
-        #[serde(serialize_with = "serialize_error_to_string")]
+        #[serde(serialize_with = "serialize_io_error")]
         error: io::Error,
     },
     DownloadInitFail {
         url: String,
-        #[serde(serialize_with = "serialize_error_to_string")]
+        #[serde(serialize_with = "serialize_any_error")]
         error: reqwest::Error,
     },
     DownloadWriteError {
         path: PathBuf,
         url: String,
-        #[serde(serialize_with = "serialize_error_to_string")]
+        #[serde(serialize_with = "serialize_io_error")]
         error: io::Error,
     },
-    #[serde(serialize_with = "serialize_error_to_string")]
+    #[serde(serialize_with = "serialize_any_error")]
     DownloadFail(reqwest::Error),
     FailedToRemoveTagFile {
         path: PathBuf,
@@ -93,32 +93,39 @@ pub enum CommandError {
         path: PathBuf,
         arguments: Vec<String>,
         use_obs_vkcapture: bool,
-        #[serde(serialize_with = "serialize_error_to_string")]
+        #[serde(serialize_with = "serialize_io_error")]
         error: io::Error,
-    }
-    // AnyOtherError(String),
+    },
+    FailedToRevealFolder {
+        path: PathBuf,
+        #[serde(serialize_with = "serialize_any_error")]
+        error: OpenError,
+    }, // AnyOtherError(String),
 }
 
 pub fn serialize_io_error<S: Serializer>(
     error: &io::Error,
     serializer: S,
 ) -> Result<S::Ok, S::Error> {
-    let mut error_info = serializer.serialize_struct("error_info", 5)?;
+    let mut error_info = serializer.serialize_struct("ErrorInfo", 4)?;
     error_info.serialize_field("kind", &error.kind().to_string())?;
-    error_info.serialize_field("raw", &error.raw_os_error())?;
-    error_info.serialize_field("string", &error.to_string())?;
+    error_info.serialize_field("raw_os_error", &error.raw_os_error())?;
+    error_info.serialize_field("description", &error.to_string())?;
     error_info.serialize_field("debug_format", &format!("{error:?}"))?;
     error_info.end()
 }
 
-pub fn serialize_error_to_string<E: fmt::Debug, S: Serializer>(
+pub fn serialize_any_error<E: Error, S: Serializer>(
     error: &E,
     serializer: S,
 ) -> Result<S::Ok, S::Error> {
-    serializer.serialize_str(&format!("{error:?}"))
+    let mut error_info = serializer.serialize_struct("ErrorInfo", 2)?;
+    error_info.serialize_field("description", &error.to_string())?;
+    error_info.serialize_field("debug_format", &format!("{error:?}"))?;
+    error_info.end()
 }
 
-impl CommandError {
+impl Err {
     pub fn msg(&self) -> String {
         match self {
             Self::ConvertPathToStringError(_) => "Failed to convert path to string!",
@@ -144,6 +151,7 @@ impl CommandError {
             Self::FailedToRemoveTagFile { .. } => "Failed to remove tag file.",
             Self::FailedToLaunchProfile { use_obs_vkcapture: false, .. } => "Failed to launch profile! Is the executable installed?",
             Self::FailedToLaunchProfile { use_obs_vkcapture: true, .. } => "Failed to launch profile! Is the executable installed? Is obs-vkcapture installed and pathed?",
+            Self::FailedToRevealFolder { .. } => "Failed to reveal folder. Is it installed?",
             // Self::AnyOtherError(msg) => msg,
             // _ => "Unknown error."
         }.to_owned()
@@ -161,3 +169,21 @@ impl CommandError {
 //         Self::AnyOtherError(value.to_owned())
 //     }
 // }
+
+#[derive(Debug)]
+pub struct CommandError(Err);
+
+impl Serialize for CommandError {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        let mut error_info = serializer.serialize_struct("CommandError", 2)?;
+        error_info.serialize_field("details", &self.0)?;
+        error_info.serialize_field("message", &self.0.msg())?;
+        error_info.end()
+    }
+}
+
+impl From<Err> for CommandError {
+    fn from(value: Err) -> Self {
+        Self(value)
+    }
+}
