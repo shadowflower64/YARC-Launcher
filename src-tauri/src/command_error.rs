@@ -5,9 +5,11 @@ use std::{error::Error, io, path::PathBuf};
 use zip_extract::ZipExtractError;
 
 #[derive(Debug, Serialize)]
-#[serde(tag = "type")]
+#[serde(tag = "type", rename_all = "camelCase")]
 pub enum Err {
-    ConvertPathToStringError(PathBuf),
+    ConvertPathToStringError {
+        path: PathBuf
+    },
     FailedToRecreateFolder {
         path: PathBuf,
         #[serde(serialize_with = "serialize_io_error")]
@@ -54,18 +56,28 @@ pub enum Err {
         #[serde(serialize_with = "serialize_any_error")]
         error: ZipExtractError,
     },
-    UnhandledReleaseFileType(String),
+    #[serde(rename_all = "camelCase")]
+    UnhandledReleaseFileType {
+        release_type: String
+    },
     WriteTagFileError {
         path: PathBuf,
         #[serde(serialize_with = "serialize_io_error")]
         error: io::Error,
     },
-    #[serde(serialize_with = "serialize_any_error")]
-    InvalidSignatureFile(PError),
-    #[serde(serialize_with = "serialize_io_error")]
-    VerifyOpenZipFail(io::Error),
-    #[serde(serialize_with = "serialize_any_error")]
-    VerifyFail(PError),
+    InvalidSignatureFile {
+        #[serde(serialize_with = "serialize_any_error")]
+        error: PError
+    },
+    VerifyOpenZipFail {
+        path: PathBuf,
+        #[serde(serialize_with = "serialize_io_error")]
+        error: io::Error
+    },
+    VerifyFail {
+        #[serde(serialize_with = "serialize_any_error")]
+        error: PError
+    },
     DownloadFileCreateFail {
         path: PathBuf,
         #[serde(serialize_with = "serialize_io_error")]
@@ -82,13 +94,16 @@ pub enum Err {
         #[serde(serialize_with = "serialize_io_error")]
         error: io::Error,
     },
-    #[serde(serialize_with = "serialize_any_error")]
-    DownloadFail(reqwest::Error),
+    DownloadFail {
+        #[serde(serialize_with = "serialize_any_error")]
+        error: reqwest::Error
+    },
     FailedToRemoveTagFile {
         path: PathBuf,
         #[serde(serialize_with = "serialize_io_error")]
         error: io::Error,
     },
+    #[serde(rename_all = "camelCase")]
     FailedToLaunchProfile {
         path: PathBuf,
         arguments: Vec<String>,
@@ -109,9 +124,9 @@ pub fn serialize_io_error<S: Serializer>(
 ) -> Result<S::Ok, S::Error> {
     let mut error_info = serializer.serialize_struct("ErrorInfo", 4)?;
     error_info.serialize_field("kind", &error.kind().to_string())?;
-    error_info.serialize_field("raw_os_error", &error.raw_os_error())?;
+    error_info.serialize_field("rawOsError", &error.raw_os_error())?;
     error_info.serialize_field("description", &error.to_string())?;
-    error_info.serialize_field("debug_format", &format!("{error:?}"))?;
+    error_info.serialize_field("debugFormat", &format!("{error:?}"))?;
     error_info.end()
 }
 
@@ -121,14 +136,14 @@ pub fn serialize_any_error<E: Error, S: Serializer>(
 ) -> Result<S::Ok, S::Error> {
     let mut error_info = serializer.serialize_struct("ErrorInfo", 2)?;
     error_info.serialize_field("description", &error.to_string())?;
-    error_info.serialize_field("debug_format", &format!("{error:?}"))?;
+    error_info.serialize_field("debugFormat", &format!("{error:?}"))?;
     error_info.end()
 }
 
 impl Err {
     pub fn msg(&self) -> String {
         match self {
-            Self::ConvertPathToStringError(_) => "Failed to convert path to string!",
+            Self::ConvertPathToStringError{..} => "Failed to convert path to string!",
             Self::FailedToRecreateFolder { .. } => "Failed to re-create folder.",
             Self::CreateYARCDirectory { .. } => "Failed to create YARC directory.",
             Self::CreateLauncherDirectory { .. } => "Failed to create launcher directory.",
@@ -139,15 +154,15 @@ impl Err {
             Self::ExtractSetlistPath { .. } => "Failed to extract setlist part.",
             Self::ExtractFileOpenError { .. } => "Failed to open file while extracting.",
             Self::ExtractZipError { .. } => "Failed to extract zip.",
-            Self::UnhandledReleaseFileType(_) => "Unhandled release file type.",
+            Self::UnhandledReleaseFileType { .. } => "Unhandled release file type.",
             Self::WriteTagFileError { .. } => "Failed to write tag file.",
-            Self::InvalidSignatureFile(_) => "Invalid signature file! Try reinstalling. If it keeps failing, let us know ASAP!",
-            Self::VerifyOpenZipFail(_) => "Failed to open zip while verifying.",
-            Self::VerifyFail(_) => "Failed to verify downloaded zip file! Try reinstalling. If it keeps failing, let us know ASAP!",
+            Self::InvalidSignatureFile{ .. } => "Invalid signature file! Try reinstalling. If it keeps failing, let us know ASAP!",
+            Self::VerifyOpenZipFail{..} => "Failed to open zip while verifying.",
+            Self::VerifyFail{..} => "Failed to verify downloaded zip file! Try reinstalling. If it keeps failing, let us know ASAP!",
             Self::DownloadFileCreateFail { .. } => "Failed to create download file.",
             Self::DownloadInitFail { .. } => "Failed to initialize download.",
             Self::DownloadWriteError { .. } => "Error while writing to file.",
-            Self::DownloadFail(_) => "Error while downloading file.",
+            Self::DownloadFail { .. } => "Error while downloading file.",
             Self::FailedToRemoveTagFile { .. } => "Failed to remove tag file.",
             Self::FailedToLaunchProfile { use_obs_vkcapture: false, .. } => "Failed to launch profile! Is the executable installed?",
             Self::FailedToLaunchProfile { use_obs_vkcapture: true, .. } => "Failed to launch profile! Is the executable installed? Is obs-vkcapture installed and pathed?",

@@ -4,6 +4,7 @@ import styles from "./BaseDialog.module.css";
 import { error as LogError } from "tauri-plugin-log-api";
 import { serializeError } from "serialize-error";
 import { closeDialog } from "..";
+import { ErrorInfo } from "@app/utils/errorTypes";
 
 export class ErrorDialog extends BaseDialog<Record<string, never>> {
     constructor(props: Record<string, unknown>) {
@@ -23,7 +24,11 @@ export class ErrorDialog extends BaseDialog<Record<string, never>> {
         if (this.props.error instanceof Error) {
             message = JSON.stringify(serializeError(this.props.error));
         } else if (typeof this.props.error === "string") {
-            message = this.props.error;
+            try {
+                const errorInfo = JSON.parse(this.props.error) as ErrorInfo;
+            } catch {
+                message = this.props.error;
+            }
         } else {
             message = JSON.stringify(this.props.error);
         }
