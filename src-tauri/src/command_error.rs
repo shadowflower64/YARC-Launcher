@@ -66,6 +66,7 @@ pub enum Err {
         error: io::Error,
     },
     InvalidSignatureFile {
+        path: PathBuf,
         #[serde(serialize_with = "serialize_any_error")]
         error: PError
     },

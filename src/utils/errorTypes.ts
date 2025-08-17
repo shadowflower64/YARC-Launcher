@@ -17,8 +17,12 @@ export type ErrorInfo = {
     type: "convertPathToStringError",
     path: string
 } | {
-    type: "extractSetlistPath" | "extractZipError" | "invalidSignatureFile" | "verifyFail" | "downloadFail",
+    type: "extractSetlistPath" | "extractZipError" | "verifyFail" | "downloadFail",
     error: AnyError,
+} | {
+    type: "failedToRevealFolder" | "invalidSignatureFile",
+    path: string,
+    error: AnyError
 } | {
     type: "failedToRecreateFolder" | "createYARCDirectory" | "createLauncherDirectory" | "createTempDirectory" | "createSetlistDirectory" | "extractFileOpenError" | "writeTagFileError" | "verifyOpenZipFail" | "downloadFileCreateFail" | "failedToRemoveTagFile",
     path: string,
@@ -38,8 +42,4 @@ export type ErrorInfo = {
     arguments: string[],
     useObsVkapture: boolean,
     error: IoError
-} | {
-    type: "failedToRevealFolder",
-    path: string,
-    error: AnyError
 };

@@ -25,7 +25,7 @@ export class ErrorDialog extends BaseDialog<Record<string, never>> {
             message = JSON.stringify(serializeError(this.props.error));
         } else if (typeof this.props.error === "string") {
             try {
-                const errorInfo = JSON.parse(this.props.error) as ErrorInfo;
+                const errorInfo = JSON.parse(this.props.error) as ErrorInfo; // TODO
             } catch {
                 message = this.props.error;
             }

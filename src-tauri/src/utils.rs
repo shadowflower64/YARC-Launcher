@@ -35,7 +35,7 @@ pub fn path_to_string(p: &Path) -> Result<String, CommandError> {
     Ok(p.as_os_str()
         .to_str()
         .map(|x| x.to_owned())
-        .ok_or_else(|| Err::ConvertPathToStringError(p.to_owned()))?)
+        .ok_or_else(|| Err::ConvertPathToStringError { path: p.to_owned() })?)
 }
 
 pub fn clear_folder(path: &Path) -> Result<(), CommandError> {
@@ -103,7 +103,7 @@ pub async fn download(
                         last_resume_point = current_downloaded;
                         continue 'retry;
                     } else {
-                        Err(Err::DownloadFail(e))?
+                        Err(Err::DownloadFail{ error: e})?
                     }
                 }
             };

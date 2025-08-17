@@ -187,12 +187,12 @@ async fn download_and_install_profile(
 
                 // Create the signature box
                 let sig_box =
-                    SignatureBox::from_file(&sig_file).map_err(Err::InvalidSignatureFile)?;
+                    SignatureBox::from_file(&sig_file).map_err(|error| Err::InvalidSignatureFile { path: sig_file.clone(), error })?;
 
                 // Verify
-                let zip_file = File::open(&temp_file).map_err(Err::VerifyOpenZipFail)?;
+                let zip_file = File::open(&temp_file).map_err(|error| Err::VerifyOpenZipFail { path: temp_file.clone(), error })?;
                 minisign::verify(&pk, &sig_box, zip_file, true, false, false)
-                    .map_err(Err::VerifyFail)?;
+                    .map_err(|error| Err::VerifyFail { error })?;
             }
 
             // Extract/install
@@ -212,7 +212,7 @@ async fn download_and_install_profile(
             } else if file.file_type == "encrypted" {
                 extract_encrypted(&temp_file, &install_path)?;
             } else {
-                Err(Err::UnhandledReleaseFileType(file.file_type.clone()))?;
+                Err(Err::UnhandledReleaseFileType{ release_type: file.file_type.clone() })?;
             }
 
             // Clean up
